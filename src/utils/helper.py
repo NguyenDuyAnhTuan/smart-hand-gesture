@@ -2,29 +2,36 @@
 Helper utilities: logging, checkpoint saving/loading, seed, etc.
 """
 
-import os
 import logging
+import os
 import random
+import sys
+import tempfile
+
 import numpy as np
 import torch
 
 
 def get_logger(name: str, log_dir: str = "outputs/logs") -> logging.Logger:
-    """Tạo logger ghi ra console và file"""
+    """Create a logger that writes to both console and file."""
     os.makedirs(log_dir, exist_ok=True)
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
 
     if not logger.handlers:
         fmt = logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S")
 
-        # Console handler
         ch = logging.StreamHandler()
         ch.setFormatter(fmt)
         logger.addHandler(ch)
 
-        # File handler
-        fh = logging.FileHandler(os.path.join(log_dir, "train.log"))
+        fh = logging.FileHandler(os.path.join(log_dir, "train.log"), encoding="utf-8")
         fh.setFormatter(fmt)
         logger.addHandler(fh)
 
@@ -32,7 +39,7 @@ def get_logger(name: str, log_dir: str = "outputs/logs") -> logging.Logger:
 
 
 def set_seed(seed: int = 42):
-    """Đặt seed cho tính tái lập"""
+    """Set random seed for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -41,13 +48,32 @@ def set_seed(seed: int = 42):
 
 
 def save_checkpoint(model: torch.nn.Module, path: str):
-    """Lưu state_dict của model"""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save(model.state_dict(), path)
+    """Save model state_dict."""
+    abs_path = os.path.abspath(path)
+    directory = os.path.dirname(abs_path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".pth", dir=directory or None)
+    os.close(fd)
+    try:
+        torch.save(model.state_dict(), tmp_path)
+        if os.path.exists(abs_path):
+            try:
+                os.remove(abs_path)
+            except PermissionError:
+                pass
+        os.replace(tmp_path, abs_path)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 def load_checkpoint(model: torch.nn.Module, path: str, device=None) -> torch.nn.Module:
-    """Load state_dict vào model"""
+    """Load state_dict into a model."""
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.load_state_dict(torch.load(path, map_location=device))
@@ -55,5 +81,5 @@ def load_checkpoint(model: torch.nn.Module, path: str, device=None) -> torch.nn.
 
 
 def count_parameters(model: torch.nn.Module) -> int:
-    """Đếm số tham số trainable"""
+    """Count trainable parameters."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

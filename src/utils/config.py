@@ -29,6 +29,9 @@ class Config:
         return len(self.class_names)
 
     # ── Model ───────────────────────────────────────────────
+    model_name: str = "mobilenet_v3_small"
+    pretrained: bool = True
+    freeze_backbone: bool = True   # Giữ pretrained features, chỉ train classifier
     img_size: int = 224
     patch_size: int = 16
     embed_dim: int = 768
@@ -36,10 +39,11 @@ class Config:
     num_heads: int = 12
 
     # ── Training ────────────────────────────────────────────
-    epochs: int = 50
+    epochs: int = 50              # Giới hạn trên; early stopping sẽ dừng sớm hơn
     batch_size: int = 32
-    learning_rate: float = 1e-4
+    learning_rate: float = 3e-4   # Cao hơn khi chỉ train classifier
     weight_decay: float = 1e-2
+    early_stopping_patience: int = 8   # Dừng nếu val_acc không cải thiện sau 8 epochs
     train_split: float = 0.7
     val_split: float = 0.15
     # test_split = 1 - train_split - val_split

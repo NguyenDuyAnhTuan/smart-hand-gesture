@@ -1,57 +1,88 @@
 """
-MediaPipe hand landmark detection module.
-Provides utilities for extracting hand landmarks from images/frames.
+MediaPipe hand landmark detection module and robust fallback logic.
 """
 
 import cv2
-import mediapipe as mp
 import numpy as np
 
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
+# Thử import MediaPipe một cách an toàn
+try:
+    import mediapipe as mp
+    _hands_factory = mp.solutions.hands.Hands
+    _drawing_utils = mp.solutions.drawing_utils
+    _hand_connections = mp.solutions.hands.HAND_CONNECTIONS
+except Exception:
+    mp = None
+    _hands_factory = None
+    _drawing_utils = None
+    _hand_connections = None
 
 
-class HandLandmarkDetector:
+class HandDetectorWrapper:
     """
-    Wrapper cho MediaPipe Hands, dùng để extract landmarks từ ảnh hoặc webcam frame.
+    Bọc MediaPipe Hands. Nếu MediaPipe không khả dụng (ví dụ lỗi phiên bản Python),
+    cung cấp cơ chế Fallback Center Crop.
     """
 
-    def __init__(self, static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5, min_tracking_confidence=0.5):
-        self.hands = mp_hands.Hands(
-            static_image_mode=static_image_mode,
-            max_num_hands=max_num_hands,
-            min_detection_confidence=min_detection_confidence,
-            min_tracking_confidence=min_tracking_confidence,
-        )
+    def __init__(self, use_mediapipe=True):
+        self.use_mediapipe = use_mediapipe and _hands_factory is not None
+        self.hands = None
+        
+        if self.use_mediapipe:
+            try:
+                self.hands = _hands_factory(
+                    static_image_mode=False,
+                    max_num_hands=1,
+                    min_detection_confidence=0.55,
+                    min_tracking_confidence=0.45
+                )
+            except Exception:
+                self.use_mediapipe = False
+                self.hands = None
 
-    def detect(self, bgr_image):
+    def get_crop(self, frame):
         """
-        Phát hiện hand landmarks từ ảnh BGR.
-
-        Returns:
-            landmarks (list of float): 21*3=63 giá trị [x0,y0,z0,...,x20,y20,z20],
-                                       hoặc None nếu không tìm thấy bàn tay.
+        Lấy crop bàn tay và bounding box từ frame.
+        Trả về: crop_img, (x1, y1, x2, y2), is_fallback_mode
         """
-        rgb = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
-        results = self.hands.process(rgb)
+        h, w = frame.shape[:2]
 
-        if not results.multi_hand_landmarks:
-            return None
+        if self.use_mediapipe and self.hands is not None:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = self.hands.process(rgb)
 
-        hand = results.multi_hand_landmarks[0]
-        row = []
-        for lm in hand.landmark:
-            row.extend([lm.x, lm.y, lm.z])
-        return row
+            if results.multi_hand_landmarks:
+                hand = results.multi_hand_landmarks[0]
+                xs = [lm.x for lm in hand.landmark]
+                ys = [lm.y for lm in hand.landmark]
 
-    def draw(self, bgr_image):
-        """Vẽ landmarks lên ảnh (để debug/hiển thị)"""
-        rgb = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
-        results = self.hands.process(rgb)
-        if results.multi_hand_landmarks:
-            for hand_lm in results.multi_hand_landmarks:
-                mp_drawing.draw_landmarks(bgr_image, hand_lm, mp_hands.HAND_CONNECTIONS)
-        return bgr_image
+                xmin_px = int(min(xs) * w)
+                xmax_px = int(max(xs) * w)
+                ymin_px = int(min(ys) * h)
+                ymax_px = int(max(ys) * h)
+
+                bw = xmax_px - xmin_px
+                bh = ymax_px - ymin_px
+                mx = int(bw * 0.20)
+                my = int(bh * 0.20)
+
+                x1 = max(0, xmin_px - mx)
+                y1 = max(0, ymin_px - my)
+                x2 = min(w, xmax_px + mx)
+                y2 = min(h, ymax_px + my)
+
+                if (x2 - x1) >= 20 and (y2 - y1) >= 20:
+                    return frame[y1:y2, x1:x2], (x1, y1, x2, y2), False
+
+        # Fallback Mode: Crop 45% ở giữa khung hình
+        cw, ch = int(w * 0.45), int(h * 0.45)
+        x1 = max(0, w // 2 - cw // 2)
+        y1 = max(0, h // 2 - ch // 2)
+        x2 = min(w, x1 + cw)
+        y2 = min(h, y1 + ch)
+        
+        return frame[y1:y2, x1:x2], (x1, y1, x2, y2), True
 
     def close(self):
-        self.hands.close()
+        if self.hands is not None:
+            self.hands.close()
