@@ -40,26 +40,15 @@ class GesturePredictor:
         Điều này tránh load nhầm model khi checkpoint không khớp với config hiện tại.
         """
         keys = set(state_dict.keys())
-        common_kwargs = {
-            "num_classes": self.cfg.num_classes,
-            "pretrained": False,
-            "img_size": self.cfg.img_size,
-            "patch_size": self.cfg.patch_size,
-            "embed_dim": self.cfg.embed_dim,
-            "depth": self.cfg.depth,
-            "num_heads": self.cfg.num_heads,
-        }
 
-        # Phát hiện kiến trúc từ keys đặc trưng
-        if "cls_token" in keys or "patch_embed.proj.weight" in keys:
-            detected_name = "vit"
-        elif any("features." in k for k in keys) or any("classifier." in k for k in keys):
-            detected_name = "mobilenet_v3_small"
+        # Phân biệt Large vs Small qua kích thước classifier[-1].weight
+        classifier_weight_key = next((k for k in keys if k.endswith("classifier.3.weight")), None)
+        if classifier_weight_key and state_dict[classifier_weight_key].shape[1] == 1280:
+            detected_name = "mobilenet_v3_large"
         else:
-            # Fallback: dùng model_name từ config
-            detected_name = getattr(self.cfg, "model_name", "vit")
+            detected_name = getattr(self.cfg, "model_name", "mobilenet_v3_small")
 
-        cfg_name = getattr(self.cfg, "model_name", "vit")
+        cfg_name = getattr(self.cfg, "model_name", "mobilenet_v3_small")
         if detected_name != cfg_name:
             import warnings
             warnings.warn(
@@ -68,7 +57,11 @@ class GesturePredictor:
                 f"Su dung kien truc tu checkpoint: '{detected_name}'."
             )
 
-        model = build_model(model_name=detected_name, **common_kwargs)
+        model = build_model(
+            num_classes=self.cfg.num_classes,
+            model_name=detected_name,
+            pretrained=False,
+        )
         model.load_state_dict(state_dict, strict=True)
         return model
 
@@ -110,6 +103,6 @@ class GesturePredictor:
     @torch.no_grad()
     def predict_from_landmarks(self, landmarks: list) -> str:
         raise NotImplementedError(
-            "Landmark-based prediction is not implemented for the current ViT image model. "
+            "Landmark-based prediction is not implemented for the current image model. "
             "Use predict_raw_image instead."
         )

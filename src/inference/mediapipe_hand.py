@@ -63,8 +63,8 @@ class HandDetectorWrapper:
 
                 bw = xmax_px - xmin_px
                 bh = ymax_px - ymin_px
-                mx = int(bw * 0.20)
-                my = int(bh * 0.20)
+                mx = int(bw * 0.15)  # Đồng nhất với crop_dataset.py (15%)
+                my = int(bh * 0.15)
 
                 x1 = max(0, xmin_px - mx)
                 y1 = max(0, ymin_px - my)

@@ -63,18 +63,27 @@ def _warmup_camera(cap, warmup_frames: int = 15, max_attempts: int = 45):
 def run_webcam(cfg: Config, camera_id: int = 0):
     from src.inference.predict import GesturePredictor
 
-    # ── Tìm checkpoint
-    model_name = getattr(cfg, "model_name", "vit")
+    # ── Tìm checkpoint: ưu tiên file khớp model_name, sau đó tìm file _best.pth mới nhất
+    model_name = getattr(cfg, "model_name", "mobilenet_v3_small")
     checkpoint_prefix = model_name.replace("/", "_").replace("\\", "_")
     candidate_paths = [
         os.path.join(cfg.save_dir, f"{checkpoint_prefix}_best.pth"),
         os.path.join(cfg.save_dir, f"{checkpoint_prefix}_last.pth"),
         os.path.join(cfg.save_dir, f"{checkpoint_prefix}_final.pth"),
-        os.path.join(cfg.save_dir, "vit_best.pth"),
-        os.path.join(cfg.save_dir, "vit_last.pth"),
-        os.path.join(cfg.save_dir, "vit_final.pth"),
     ]
     model_path = next((p for p in candidate_paths if os.path.exists(p)), None)
+
+    # Fallback: quét thư mục, ưu tiên file _best.pth mới nhất (tránh dùng checkpoint sai num_classes)
+    if model_path is None and os.path.isdir(cfg.save_dir):
+        best_files = sorted(
+            [os.path.join(cfg.save_dir, f) for f in os.listdir(cfg.save_dir)
+             if f.endswith("_best.pth")],
+            key=os.path.getmtime,
+            reverse=True,
+        )
+        if best_files:
+            model_path = best_files[0]
+
     if model_path is None:
         print(f"Loi: Khong tim thay file model trong {cfg.save_dir}")
         return
@@ -109,6 +118,7 @@ def run_webcam(cfg: Config, camera_id: int = 0):
         # Để tăng FPS: bỏ qua số frame inference
         frame_count = 0
         PROCESS_EVERY_N_FRAMES = 2
+        MIN_CONFIDENCE = 0.50  # Chỉ chấp nhận dự đoán khi model đủ tự tin
 
         print(">>> Nhan Q de thoat <<<")
 
@@ -141,9 +151,11 @@ def run_webcam(cfg: Config, camera_id: int = 0):
                         label = topk[0][0]
                         conf = topk[0][1]
 
-                        recent_labels.append(label)
-                        stable_label = Counter(recent_labels).most_common(1)[0][0]
-                        stable_conf = conf
+                        # Chỉ cập nhật khi model đủ tự tin (tránh nhiễu khi chuyển cử chỉ)
+                        if conf >= MIN_CONFIDENCE:
+                            recent_labels.append(label)
+                            stable_label = Counter(recent_labels).most_common(1)[0][0]
+                            stable_conf = conf
                     except Exception:
                         pass
 

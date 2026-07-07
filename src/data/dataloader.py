@@ -9,8 +9,8 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+from typing import List, Optional
 
-from src.data.augmentation import augment
 from src.utils.config import Config
 
 
@@ -19,18 +19,22 @@ class HandGestureImageDataset(Dataset):
     Dataset tùy chỉnh để tải ảnh cử chỉ tay đã được tiền xử lý cắt thô.
     """
 
-    def __init__(self, root_dir: str, class_names: list, use_augment: bool = False, img_size: int = 224):
+    def __init__(self, root_dir: str, class_names: list, use_augment: bool = False, img_size: int = 224, return_paths: bool = False, targeted_augment_classes: Optional[List[str]] = None):
         """
         Args:
             root_dir: Thư mục chứa các nhãn cử chỉ (ví dụ: dataset/processed_cropped/train)
             class_names: Danh sách tên nhãn cử chỉ để lấy index làm nhãn số
             use_augment: Có áp dụng Data Augmentation (torchvision) hay không
             img_size: Kích thước ảnh đầu ra
+            return_paths: Có trả thêm đường dẫn ảnh gốc hay không
+            targeted_augment_classes: Danh sách lớp sẽ được augment mạnh hơn
         """
         self.root_dir = root_dir
         self.class_names = class_names
         self.use_augment = use_augment
         self.img_size = img_size
+        self.return_paths = return_paths
+        self.targeted_augment_labels = set(targeted_augment_classes or [])
 
         self.img_paths = []
         self.labels = []
@@ -50,6 +54,31 @@ class HandGestureImageDataset(Dataset):
                     self.labels.append(self.label_to_idx[label])
 
         # Định nghĩa các PyTorch transforms cơ bản (chuyển sang tensor và chuẩn hóa ImageNet)
+        self.targeted_torch_transform = None
+        if use_augment:
+            self.targeted_torch_transform = transforms.Compose([
+                transforms.Resize((img_size, img_size)),
+                transforms.RandomHorizontalFlip(p=0.5),  # Cần thiết vì webcam lật gương frame
+                transforms.RandomRotation(degrees=12),
+                transforms.ColorJitter(
+                    brightness=0.25,
+                    contrast=0.25,
+                    saturation=0.25,
+                    hue=0.05,
+                ),
+                transforms.RandomAffine(
+                    degrees=0,
+                    translate=(0.04, 0.04),
+                    scale=(0.95, 1.05),
+                    shear=4,
+                ),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225],
+                ),
+            ])
+
         if use_augment:
             self.torch_transform = transforms.Compose([
                 transforms.Resize((img_size, img_size)),
@@ -100,7 +129,12 @@ class HandGestureImageDataset(Dataset):
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img = Image.fromarray(img)
 
-        img_tensor = self.torch_transform(img)
+        if self.use_augment and self.targeted_torch_transform is not None and self.class_names[label] in self.targeted_augment_labels:
+            img_tensor = self.targeted_torch_transform(img)
+        else:
+            img_tensor = self.torch_transform(img)
+        if self.return_paths:
+            return img_tensor, label, img_path
         return img_tensor, label
 
 
@@ -109,7 +143,7 @@ def get_dataloaders(cfg: Config):
     Tạo train_loader và val_loader cho quá trình huấn luyện từ thư mục dataset/processed_cropped.
     """
     # Trỏ đến thư mục ảnh đã cắt
-    cropped_base_dir = "dataset/processed_cropped"
+    cropped_base_dir = cfg.dataset_processed_cropped_dir
     train_dir = os.path.join(cropped_base_dir, "train")
     val_dir = os.path.join(cropped_base_dir, "val")
 
@@ -118,7 +152,8 @@ def get_dataloaders(cfg: Config):
         root_dir=train_dir,
         class_names=cfg.class_names,
         use_augment=cfg.use_augmentation,
-        img_size=cfg.img_size
+        img_size=cfg.img_size,
+        targeted_augment_classes=getattr(cfg, "targeted_augmentation_classes", []),
     )
 
     val_dataset = HandGestureImageDataset(

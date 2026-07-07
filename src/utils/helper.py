@@ -72,14 +72,3 @@ def save_checkpoint(model: torch.nn.Module, path: str):
                 pass
 
 
-def load_checkpoint(model: torch.nn.Module, path: str, device=None) -> torch.nn.Module:
-    """Load state_dict into a model."""
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.load_state_dict(torch.load(path, map_location=device))
-    return model
-
-
-def count_parameters(model: torch.nn.Module) -> int:
-    """Count trainable parameters."""
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)

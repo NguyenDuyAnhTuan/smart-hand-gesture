@@ -2,7 +2,6 @@
 Central configuration file for the hand gesture recognition project.
 """
 
-import os
 from dataclasses import dataclass, field
 from typing import List
 
@@ -10,18 +9,17 @@ from typing import List
 @dataclass
 class Config:
     # ── Đường dẫn ──────────────────────────────────────────
-    root_dir: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    dataset_raw_dir: str = "dataset/raw"
-    dataset_processed_dir: str = "dataset/processed"
-    csv_path: str = "outputs/results/gesture_dataset.csv"
+    dataset_processed_cropped_dir: str = "dataset/processed_cropped"
     save_dir: str = "saved_models"
     log_dir: str = "outputs/logs"
-    plot_dir: str = "outputs/plots"
 
     # ── Nhãn cử chỉ ────────────────────────────────────────
     class_names: List[str] = field(default_factory=lambda: [
-        "call", "dislike", "like", "ok", "one",
-        "punch", "rock", "sayhi", "stop", "tym"
+        "A", "B", "C", "D", "E",
+        "F", "G", "H", "I", "L",
+        "M", "N", "O", "P", "R",
+        "S", "T", "U", "V", "W",
+        "Y"
     ])
 
     @property
@@ -29,27 +27,25 @@ class Config:
         return len(self.class_names)
 
     # ── Model ───────────────────────────────────────────────
+    # Tùy chọn: "mobilenet_v3_small" (nhanh, ít overfit) | "mobilenet_v3_large" (cần dataset lớn hơn)
     model_name: str = "mobilenet_v3_small"
     pretrained: bool = True
-    freeze_backbone: bool = True   # Giữ pretrained features, chỉ train classifier
+    freeze_backbone: bool = True        # Fine-tune các block cuối và classifier head
+    fine_tune_last_blocks: int = 2      # Số block cuối MobileNetV3 được mở để fine-tune
+    backbone_lr_multiplier: float = 0.1 # LR backbone = learning_rate * multiplier
     img_size: int = 224
-    patch_size: int = 16
-    embed_dim: int = 768
-    depth: int = 12
-    num_heads: int = 12
 
     # ── Training ────────────────────────────────────────────
-    epochs: int = 50              # Giới hạn trên; early stopping sẽ dừng sớm hơn
+    epochs: int = 50                    # Giới hạn trên; early stopping sẽ dừng sớm hơn
     batch_size: int = 32
-    learning_rate: float = 3e-4   # Cao hơn khi chỉ train classifier
+    learning_rate: float = 3e-4         # LR cho classifier head
     weight_decay: float = 1e-2
-    early_stopping_patience: int = 8   # Dừng nếu val_acc không cải thiện sau 8 epochs
-    train_split: float = 0.7
-    val_split: float = 0.15
-    # test_split = 1 - train_split - val_split
+    early_stopping_patience: int = 8    # Dừng nếu val_acc không cải thiện sau N epochs
 
     # ── Augmentation ────────────────────────────────────────
     use_augmentation: bool = True
+    # Các lớp dễ nhầm lẫn được áp dụng augmentation nhẹ hơn để giữ đặc trưng phân biệt
+    targeted_augmentation_classes: List[str] = field(default_factory=lambda: ["R", "U"])
 
-    # ── Device ──────────────────────────────────────────────
+    # ── Reproducibility ─────────────────────────────────────
     seed: int = 42

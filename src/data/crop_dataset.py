@@ -18,7 +18,7 @@ except Exception:
 
 INPUT_DIR = "dataset/processed"
 OUTPUT_DIR = "dataset/processed_cropped"
-SPLITS = ["train", "val", "test"]
+SPLITS = ["valid"]
 
 hands = None
 if _hands_factory is not None:
@@ -42,7 +42,8 @@ def crop_hand(img_path):
     results = hands.process(rgb)
 
     if not results.multi_hand_landmarks:
-        return cv2.resize(img, (224, 224), interpolation=cv2.INTER_AREA)
+        # Bỏ qua ảnh không phát hiện được tay để đảm bảo dữ liệu huấn luyện sạch
+        return None
 
     hand_landmarks = results.multi_hand_landmarks[0]
     x_coords = [lm.x for lm in hand_landmarks.landmark]
@@ -67,7 +68,8 @@ def crop_hand(img_path):
     ymax_px = min(h, ymax_px + margin_y)
 
     if (xmax_px - xmin_px) < 10 or (ymax_px - ymin_px) < 10:
-        return cv2.resize(img, (224, 224), interpolation=cv2.INTER_AREA)
+        # Bounding box quá nhỏ (nhiễu) → bỏ qua
+        return None
 
     cropped = img[ymin_px:ymax_px, xmin_px:xmax_px]
     return cv2.resize(cropped, (224, 224), interpolation=cv2.INTER_AREA)
